@@ -1,5 +1,7 @@
 package at.htlvillach.noaharsic.race.e_04_01_race;
 
+import at.htlvillach.noaharsic.race.e_04_01_race.model.Rhaser;
+import javafx.application.Platform;
 import javafx.collections.ObservableList;
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
@@ -29,6 +31,8 @@ public class HelloController implements Initializable {
     public Button btnRemove;
 
     private int playing = 2;
+
+    private Thread rhaser;
 
     private void initialLayout() {
 
@@ -94,5 +98,10 @@ public class HelloController implements Initializable {
         gpPlayers.getChildren().removeIf(node -> GridPane.getRowIndex(node) == playing);
         gpPlayers.getRowConstraints().remove(playing);
         if (playing == 2) btnRemove.setDisable(true);
+    }
+
+    public void startGame(ActionEvent actionEvent) {
+        rhaser = new Thread(new Rhaser(playing, cars));
+        rhaser.start();
     }
 }

@@ -49,7 +49,7 @@
                   <Button fx:id="btnRemove" mnemonicParsing="false" onAction="#removePlayer" text="Remove Player" />
                </children>
             </HBox>
-            <Button mnemonicParsing="false" text="Start Game" />
+            <Button mnemonicParsing="false" onAction="#startGame" text="Start Game" />
          </children>
       </VBox>
    </right>
