@@ -1,10 +1,8 @@
 package at.htlvillach.noaharsic.race.e_04_01_race;
 
-import at.htlvillach.noaharsic.race.e_04_01_race.model.Rhaser;
+import javafx.animation.TranslateTransition;
 import javafx.application.Platform;
-import javafx.collections.ObservableList;
 import javafx.event.ActionEvent;
-import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -17,10 +15,14 @@ import javafx.scene.image.ImageView;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.RowConstraints;
 import javafx.scene.layout.StackPane;
+import javafx.scene.layout.VBox;
+import javafx.util.Duration;
 
 import java.io.IOException;
 import java.net.URL;
+import java.util.Random;
 import java.util.ResourceBundle;
+import java.util.concurrent.Phaser;
 
 public class HelloController implements Initializable {
     public StackPane spRaceLines;
@@ -29,14 +31,12 @@ public class HelloController implements Initializable {
     public Node[] cars = new Node[4];
     public Button btnAdd;
     public Button btnRemove;
+    public Button btnStart;
+    public VBox vbControls;
 
     private int playing = 2;
 
     private Thread rhaser;
-
-    private void initialLayout() {
-
-    }
 
     private void drawRoad() {
         try {
@@ -76,7 +76,6 @@ public class HelloController implements Initializable {
         btnRemove.setDisable(true);
         drawRoad();
         drawCars();
-        initialLayout();
     }
 
     public void addPlayer(ActionEvent actionEvent) {
@@ -103,5 +102,68 @@ public class HelloController implements Initializable {
     public void startGame(ActionEvent actionEvent) {
         rhaser = new Thread(new Rhaser(playing, cars));
         rhaser.start();
+        vbControls.setDisable(true);
+    }
+
+    public void resetCars() {
+        for (int i = 0; i < cars.length; i++) cars[i].setTranslateX(0);
+    }
+
+    class Rhaser implements Runnable{
+        Phaser phaser = new Phaser();
+        int players;
+        Node[] cars;
+
+        public Rhaser(int players, Node[] cars) {
+            this.players = players;
+            this.cars = cars;
+        }
+
+        @Override
+        public void run() {
+            for (int i = 0; i < players; i++) {
+                Thread rt = new Thread(new RacerThread(phaser, cars[i]));
+                rt.start();
+            }
+        }
+    }
+
+    class RacerThread implements Runnable {
+        Phaser phaser;
+        Node car;
+
+        public RacerThread(Phaser phaser, Node car) {
+            this.phaser = phaser;
+            this.car = car;
+            phaser.register();
+        }
+        private void runRound() {
+            Random r = new Random();
+            double drivingTime = r.nextDouble(1.5, 4);
+            Platform.runLater(() -> car.setTranslateX(0));
+            TranslateTransition translate = new TranslateTransition();
+            translate.setNode(car);
+            translate.setByX(675);
+            translate.setDuration(Duration.seconds(drivingTime));
+            Platform.runLater(translate::play);
+            try {
+                Thread.sleep((long) (drivingTime * 1000));
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            if (phaser.getPhase() == 4) {
+                resetCars();
+                phaser.arriveAndDeregister();
+                vbControls.setDisable(false);
+            } else {
+                phaser.arriveAndAwaitAdvance();
+                runRound();
+            }
+        }
+
+        @Override
+        public void run() {
+            runRound();
+        }
     }
 }
