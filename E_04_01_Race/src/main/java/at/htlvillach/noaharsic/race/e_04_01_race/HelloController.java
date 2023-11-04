@@ -139,7 +139,7 @@ public class HelloController implements Initializable {
         }
         private void runRound() {
             Random r = new Random();
-            double drivingTime = r.nextDouble(1.5, 4);
+            double drivingTime = r.nextDouble(1.5, 2.5);
             Platform.runLater(() -> car.setTranslateX(0));
             TranslateTransition translate = new TranslateTransition();
             translate.setNode(car);
@@ -152,9 +152,16 @@ public class HelloController implements Initializable {
                 e.printStackTrace();
             }
             if (phaser.getPhase() == 4) {
-                resetCars();
                 phaser.arriveAndDeregister();
-                vbControls.setDisable(false);
+                if (phaser.isTerminated()) {
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                    vbControls.setDisable(false);
+                    resetCars();
+                }
             } else {
                 phaser.arriveAndAwaitAdvance();
                 runRound();
