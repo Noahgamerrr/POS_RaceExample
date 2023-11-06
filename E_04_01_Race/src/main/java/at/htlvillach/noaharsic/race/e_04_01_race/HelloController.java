@@ -103,6 +103,14 @@ public class HelloController implements Initializable {
         if (playing == 4) btnAdd.setDisable(true);
     }
 
+    String[] getPlayerNames() {
+        return gpPlayers.getChildren().stream()
+                .filter(node -> node instanceof TextField)
+                .map(node -> (TextField) node)
+                .map(TextField::getText)
+                .toArray(String[]::new);
+    }
+
     public void removePlayer(ActionEvent actionEvent) {
         btnAdd.setDisable(false);
         playing--;
@@ -174,8 +182,10 @@ public class HelloController implements Initializable {
             lHeader.setStyle("-fx-font-weight: bold;");
             gpScoreboard.add(lHeader, 8, 0);
 
+            String[] playerNames = getPlayerNames();
+
             // Scoreboard: Rows
-            for (int i = 0; i < cars.length; i++) {
+            for (int i = 0; i < players; i++) {
                 double totalTime = Arrays.stream(lapTimes.get(i).get()).reduce(0.0, Double::sum).doubleValue();
 
                 // Get placement
@@ -183,25 +193,42 @@ public class HelloController implements Initializable {
 
                 Label l = new Label((betterThanThisCar + 1) + ".");
                 gpScoreboard.add(l, 0, i + 1);
-                l = new Label("Teilnehmer " + (i + 1));
+                if (betterThanThisCar == 0)
+                    // Underline
+                    l.setStyle("-fx-underline: true;");
+                l = new Label(playerNames[i]);
                 gpScoreboard.add(l, 1, i + 1);
+                if (betterThanThisCar == 0)
+                    l.setStyle("-fx-underline: true;");
                 l = new Label();
                 gpScoreboard.add(l, 2, i + 1);
+                if (betterThanThisCar == 0)
+                    l.setStyle("-fx-underline: true;");
 
 
                 // For each lap
                 for (int lap = 0; lap < 5; lap++) {
+                    final int finalLap = lap;
                     l = new Label();
                     gpScoreboard.add(l, lap + 3, i + 1);
                     double lapTime = lapTimes.get(i).get()[lap];
+                    boolean wasBestLap = lapTimes.stream().map(AtomicReference::get).map((lts) -> lts[finalLap]).min(Double::compare).orElse(0.0) == lapTime;
                     if (lapTime != 0) {
                         l.setText(String.format("%.2f", lapTime));
+                        if (wasBestLap)
+                            l.setStyle("-fx-font-weight: bold;");
+                        // If this lap is from the winner, also underline
+                        if (betterThanThisCar == 0)
+                            l.setStyle(l.getStyle() + "-fx-underline: true;");
+
                     }
                 }
 
                 l = new Label();
                 gpScoreboard.add(l, 8, i + 1);
                 l.setText(String.format("%.2f", totalTime));
+                if (betterThanThisCar == 0)
+                    l.setStyle("-fx-underline: true; -fx-font-weight: bold;");
             }
 
             // Scoreboard: Buttons
