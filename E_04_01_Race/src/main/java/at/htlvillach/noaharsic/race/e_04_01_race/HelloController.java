@@ -20,9 +20,12 @@ import javafx.util.Duration;
 
 import java.io.IOException;
 import java.net.URL;
-import java.util.Random;
-import java.util.ResourceBundle;
+import java.util.*;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.Phaser;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class HelloController implements Initializable {
     public StackPane spRaceLines;
@@ -34,9 +37,19 @@ public class HelloController implements Initializable {
     public Button btnStart;
     public VBox vbControls;
 
+    private final BlockingQueue<OnMainExecutable> execOnApplicationThread = new LinkedBlockingDeque<>();
+
     private int playing = 2;
 
     private Thread rhaser;
+
+    private static class StopRunningException extends Exception {
+
+    }
+
+    private static interface OnMainExecutable {
+        void run() throws StopRunningException;
+    }
 
     private void drawRoad() {
         try {
@@ -53,8 +66,8 @@ public class HelloController implements Initializable {
     private void drawCars() {
         try {
             for (int i = 1; i <= 4; i++) {
-                String id = "car" +i;
-                String imageStr = "assets/cars/" +id +".png";
+                String id = "car" + i;
+                String imageStr = "assets/cars/" + id + ".png";
                 Image car = new Image(HelloApplication.class.getResource(imageStr).openStream());
                 ImageView carView = new ImageView(car);
                 carView.setId(id);
@@ -109,21 +122,136 @@ public class HelloController implements Initializable {
         for (int i = 0; i < cars.length; i++) cars[i].setTranslateX(0);
     }
 
-    class Rhaser implements Runnable{
+    class Rhaser implements Runnable {
         Phaser phaser = new Phaser();
         int players;
+        List<AtomicReference<Double[]>> lapTimes = new ArrayList<>(4);
         Node[] cars;
 
         public Rhaser(int players, Node[] cars) {
             this.players = players;
             this.cars = cars;
+            for (int i = 0; i < players; i++) {
+                lapTimes.add(new AtomicReference<>(new Double[5]));
+            }
+        }
+
+        private void onFinished() {
+            // Show scoreboard
+            vbControls.setDisable(true);
+
+            // Hide everything behind a white rectangle
+            StackPane sp = new StackPane();
+            sp.setStyle("-fx-background-color: white;");
+            sp.setPrefSize(800, 600);
+
+            // Scoreboard
+            GridPane gpScoreboard = new GridPane();
+            gpScoreboard.setHgap(10);
+            gpScoreboard.setVgap(10);
+
+            // Scoreboard: Header
+            Label lHeader = new Label("Platzierung");
+            lHeader.setStyle("-fx-font-weight: bold;");
+            gpScoreboard.add(lHeader, 0, 0);
+            lHeader = new Label("Teilnehmer");
+            lHeader.setStyle("-fx-font-weight: bold;");
+            gpScoreboard.add(lHeader, 1, 0);
+            lHeader = new Label("Zeit");
+            lHeader.setStyle("-fx-font-weight: bold;");
+            gpScoreboard.add(lHeader, 2, 0);
+
+            // For each lap
+            for (int lap = 0; lap < 5; lap++) {
+                // Create lap header
+                Label l = new Label("Runde " + (lap + 1));
+                l.setStyle("-fx-font-weight: bold;");
+                gpScoreboard.add(l, lap + 3, 0);
+            }
+
+            // Gesamtzeit
+            lHeader = new Label("Gesamtzeit");
+            lHeader.setStyle("-fx-font-weight: bold;");
+            gpScoreboard.add(lHeader, 8, 0);
+
+            // Scoreboard: Rows
+            for (int i = 0; i < cars.length; i++) {
+                double totalTime = Arrays.stream(lapTimes.get(i).get()).reduce(0.0, Double::sum).doubleValue();
+
+                // Get placement
+                int betterThanThisCar = lapTimes.stream().map(AtomicReference::get).map((lt) -> (Arrays.stream(lt).reduce(0.0, Double::sum) < totalTime ? 1 : 0)).reduce(0, Integer::sum);
+
+                Label l = new Label((betterThanThisCar + 1) + ".");
+                gpScoreboard.add(l, 0, i + 1);
+                l = new Label("Teilnehmer " + (i + 1));
+                gpScoreboard.add(l, 1, i + 1);
+                l = new Label();
+                gpScoreboard.add(l, 2, i + 1);
+
+
+                // For each lap
+                for (int lap = 0; lap < 5; lap++) {
+                    l = new Label();
+                    gpScoreboard.add(l, lap + 3, i + 1);
+                    double lapTime = lapTimes.get(i).get()[lap];
+                    if (lapTime != 0) {
+                        l.setText(String.format("%.2f", lapTime));
+                    }
+                }
+
+                l = new Label();
+                gpScoreboard.add(l, 8, i + 1);
+                l.setText(String.format("%.2f", totalTime));
+            }
+
+            // Scoreboard: Buttons
+            Button btnClose = new Button("Schließen");
+            btnClose.setOnAction(actionEvent -> {
+                vbControls.setDisable(false);
+                execOnApplicationThread.add(() -> {
+                    spRaceLines.getChildren().remove(sp);
+                });
+                resetCars();
+            });
+            // Set absolute position of button
+            StackPane.setAlignment(btnClose, Pos.BOTTOM_RIGHT);
+
+            // Scoreboard: Add to StackPane
+            sp.getChildren().add(gpScoreboard);
+            sp.getChildren().add(btnClose);
+            execOnApplicationThread.add(() -> {
+                spRaceLines.getChildren().add(sp);
+            });
         }
 
         @Override
         public void run() {
+            Thread[] racers = new Thread[players];
             for (int i = 0; i < players; i++) {
-                Thread rt = new Thread(new RacerThread(phaser, cars[i]));
-                rt.start();
+                racers[i] = new Thread(new RacerThread(phaser, cars[i], lapTimes.get(i), this::onFinished));
+                racers[i].start();
+            }
+            final AtomicBoolean running = new AtomicBoolean(true);
+            while (running.get() && !Thread.currentThread().isInterrupted()) {
+                try {
+                    OnMainExecutable r = execOnApplicationThread.take();
+                    Platform.runLater(() -> {
+                        try {
+                            r.run();
+                        } catch (StopRunningException e) {
+                            running.set(false);
+                        }
+                    });
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+            for (int i = 0; i < players; i++) {
+                try {
+                    racers[i].join();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
             }
         }
     }
@@ -131,15 +259,21 @@ public class HelloController implements Initializable {
     class RacerThread implements Runnable {
         Phaser phaser;
         Node car;
+        AtomicReference<Double[]> carLapTimes;
+        private Runnable onFinished;
 
-        public RacerThread(Phaser phaser, Node car) {
+        public RacerThread(Phaser phaser, Node car, AtomicReference<Double[]> carLapTimes, Runnable onFinished) {
             this.phaser = phaser;
             this.car = car;
+            this.carLapTimes = carLapTimes;
+            this.onFinished = onFinished;
             phaser.register();
         }
+
         private void runRound() {
             Random r = new Random();
             double drivingTime = r.nextDouble(1.5, 2.5);
+            carLapTimes.get()[phaser.getPhase()] = drivingTime;
             Platform.runLater(() -> car.setTranslateX(0));
             TranslateTransition translate = new TranslateTransition();
             translate.setNode(car);
@@ -154,13 +288,7 @@ public class HelloController implements Initializable {
             if (phaser.getPhase() == 4) {
                 phaser.arriveAndDeregister();
                 if (phaser.isTerminated()) {
-                    try {
-                        Thread.sleep(100);
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
-                    vbControls.setDisable(false);
-                    resetCars();
+                    onFinished.run();
                 }
             } else {
                 phaser.arriveAndAwaitAdvance();
